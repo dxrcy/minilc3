@@ -25,7 +25,7 @@ Word swap_endian(const Word word) {
     return (word << 8) | (word >> 8);
 }
 
-void set_cc(const Word result) {
+void set_cc(const SignedWord result) {
     if (result & 0x8000) {
         cc = 0x4;
     } else if (result == 0) {
@@ -36,23 +36,23 @@ void set_cc(const Word result) {
 }
 
 SignedWord sign_extend(const Word value, const uint8_t bits) {
-    SignedWord sign_bit = 1 << (bits - 1);
-    return (value ^ sign_bit) - sign_bit;
+    Word sign_bit = 1 << (bits - 1);
+    return (SignedWord)(value ^ sign_bit) - (SignedWord)sign_bit;
 }
 
 void enable_raw_terminal() {
     struct termios tty;
-    tcgetattr(STDIN_FILENO, &tty);
+    (void)tcgetattr(STDIN_FILENO, &tty);
     tty.c_lflag &= ~ICANON;
     tty.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &tty);
+    (void)tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
 void disable_raw_terminal() {
     struct termios tty;
-    tcgetattr(STDIN_FILENO, &tty);
+    (void)tcgetattr(STDIN_FILENO, &tty);
     tty.c_lflag |= ICANON;
     tty.c_lflag |= ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &tty);
+    (void)tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
 
 static bool stdout_on_new_line = true;
@@ -74,30 +74,39 @@ int main(const int argc, const char *const *const argv) {
     }
 
     FILE *const file = fopen(argv[1], "rb");
+    size_t words_read;
     if (file == NULL) {
         fprintf(stderr, "Failed to open file.\n");
         return ERR_FILE;
     }
 
     Word origin;
-    fread(&origin, sizeof(Word), 1, file);
+    words_read = fread(&origin, sizeof(Word), 1, file);
     if (ferror(file)) {
         fprintf(stderr, "Failed to read file.");
+        (void)fclose(file);
+        return ERR_FILE;
+    }
+    if (words_read < 1) {
+        fprintf(stderr, "File is too short.");
+        (void)fclose(file);
         return ERR_FILE;
     }
     origin = swap_endian(origin);
 
-    const size_t words_read =
+    words_read =
         fread(memory + origin, sizeof(Word), MEMORY_SIZE - origin, file);
     if (ferror(file)) {
         fprintf(stderr, "Failed to read file.");
+        (void)fclose(file);
         return ERR_FILE;
     }
     if (!feof(file)) {
         fprintf(stderr, "File is too long.");
+        (void)fclose(file);
         return ERR_FILE;
     }
-    fclose(file);
+    (void)fclose(file);
     if (words_read == 0) {
         fprintf(stderr, "File is too short.");
         return ERR_FILE;
@@ -152,7 +161,7 @@ int main(const int argc, const char *const *const argv) {
                 }
                 const Word result = registers[src_reg] & value;
                 registers[dest_reg] = result;
-                set_cc(result);
+                set_cc((SignedWord)result);
             } break;
 
             // NOT*
@@ -165,7 +174,7 @@ int main(const int argc, const char *const *const argv) {
                 }
                 const Word result = ~registers[src_reg];
                 registers[dest_reg] = result;
-                set_cc(result);
+                set_cc((SignedWord)result);
             } break;
 
             // LEA*
@@ -183,7 +192,7 @@ int main(const int argc, const char *const *const argv) {
                     sign_extend(instruction & 0x1ff, 9);
                 const Word result = memory[pc + pc_offset];
                 registers[dest_reg] = result;
-                set_cc(result);
+                set_cc((SignedWord)result);
             } break;
 
             // LDI*
@@ -194,7 +203,7 @@ int main(const int argc, const char *const *const argv) {
                 const Word address = memory[pc + pc_offset];
                 const Word result = memory[address];
                 registers[dest_reg] = result;
-                set_cc(result);
+                set_cc((SignedWord)result);
             } break;
 
             // LDR*
@@ -204,7 +213,7 @@ int main(const int argc, const char *const *const argv) {
                 const SignedWord offset = sign_extend(instruction & 0x3f, 6);
                 const Word result = memory[registers[base_reg] + offset];
                 registers[dest_reg] = result;
-                set_cc(result);
+                set_cc((SignedWord)result);
             } break;
 
             // ST
@@ -290,9 +299,9 @@ int main(const int argc, const char *const *const argv) {
                     // GETC
                     case 0x20: {
                         enable_raw_terminal();
-                        const char input = getchar() & 0xff;
+                        const char input = (char)getchar();
                         disable_raw_terminal();
-                        registers[0] = input;
+                        registers[0] = (Word)input;
                     }; break;
 
                     // IN
@@ -300,36 +309,38 @@ int main(const int argc, const char *const *const argv) {
                         print_on_new_line();
                         printf("Input> ");
                         enable_raw_terminal();
-                        const char input = getchar() & 0xff;
+                        const char input = (char)getchar();
                         disable_raw_terminal();
                         print_char(input);
-                        registers[0] = input;
+                        registers[0] = (Word)input;
                     }; break;
 
                     // OUT
                     case 0x21: {
-                        print_char(registers[0] & 0xff);
-                        fflush(stdout);
+                        print_char((char)(registers[0]));
+                        (void)fflush(stdout);
                     }; break;
 
                     // PUTS
                     case 0x22: {
                         print_on_new_line();
                         for (Word i = registers[0];; ++i) {
-                            const char ch = memory[i] & 0xff;
+                            const char ch = (char)(memory[i]);
                             if (ch == '\0')
                                 break;
                             print_char(ch);
                         }
-                        fflush(stdout);
+                        (void)fflush(stdout);
                     }; break;
 
                     // PUTSP
                     case 0x24: {
                         print_on_new_line();
                         for (Word i = registers[0];; ++i) {
-                            const Word word = memory[i] & 0xff;
-                            const char chars[2] = {word >> 8, word & 0xff};
+                            const Word word = memory[i];
+                            const char chars[2] = {
+                                (char)(word >> 8), (char)word
+                            };
 
                             if (chars[0] == '\0')
                                 break;
@@ -338,36 +349,32 @@ int main(const int argc, const char *const *const argv) {
                                 break;
                             print_char(chars[1]);
                         }
-                        fflush(stdout);
+                        (void)fflush(stdout);
                     }; break;
 
                     // HALT
-                    case 0x25: {
+                    case 0x25:
                         goto halt;
-                    }; break;
 
-                    default: {
+                    default:
                         fprintf(
                             stderr,
                             "Invalid TRAP vector 0x%02hhx\n",
                             trap_vector
                         );
                         return ERR_INSTRUCTION;
-                    }
                 }
             } break;
 
             // RTI
-            case 0x8: {
+            case 0x8:
                 fprintf(stderr, "Cannot use RTI in non-supervisor mode\n");
                 return ERR_INSTRUCTION;
-            } break;
             // Reserved
-            case 0xd: {
+            case 0xd:
                 fprintf(stderr, "Cannot use reserved instruction\n");
                 return ERR_INSTRUCTION;
-            } break;
-
+            // Default branch should never be reached
             default:
                 fprintf(stderr, "Unreachable code reached\n");
                 return ERR_UNREACHABLE;
