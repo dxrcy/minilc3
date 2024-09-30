@@ -11,3 +11,9 @@ sudo make install
 minilc3 [FILE]
 ```
 
+# To do
+
+1. Check code is correct
+2. Document code
+3. Add tests
+
