@@ -1,14 +1,19 @@
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <termios.h>
-#include <unistd.h>
+// Libc
+#include <stdbool.h>  // true, false
+#include <stdint.h>   // uint16_t, etc
+#include <stdio.h>    // printf, FILE, etc
+// POSIX
+#include <termios.h>  // struct termios, etc
+#include <unistd.h>   // STDIN_FILENO
 
-#define MEMORY_SIZE 0x10000L  // Total amount of words in memory
+// Total amount of words in memory
+#define MEMORY_SIZE 0x10000L
 
-typedef uint16_t Word;  // 1 Word = 2 Bytes
+// 1 Word = 2 Bytes
+typedef uint16_t Word;
 typedef int16_t SignedWord;
 
+// All program state
 static Word memory[MEMORY_SIZE];
 static Word registers[8];  // General purpose registers
 static Word pc;            // Program counter
@@ -44,7 +49,9 @@ enum TrapVector {
     TRAP_HALT = 0x25,
 };
 
+// Kinds of user errors
 enum Error {
+    ERR_OK,           // Halted successfully
     ERR_CLI,          // Parsing command-line arguments
     ERR_FILE,         // Opening/reading file, invalid file structure
     ERR_INSTRUCTION,  // Invalid instruction or padding
@@ -237,7 +244,7 @@ int main(const int argc, const char *const *const argv) {
             case OP_NOT: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const uint8_t src_reg = (instruction >> 6) & 0x7;
-                if (~(instruction & 0x3f) != 0) {
+                if ((~instruction & 0x3f) != 0) {
                     fprintf(stderr, "Invalid padding for NOT\n");
                     return ERR_INSTRUCTION;
                 }
@@ -340,7 +347,7 @@ int main(const int argc, const char *const *const argv) {
             // JSR/JSRR
             case OP_JSR_JSRR: {
                 registers[7] = pc;
-                if (instruction & 0x400) {
+                if (instruction & 0x800) {
                     // JSR
                     const SignedWord pc_offset =
                         sign_extend(instruction & 0x7ff, 11);
@@ -449,6 +456,6 @@ int main(const int argc, const char *const *const argv) {
 halt:
 
     print_on_new_line();
-    return 0;
+    return ERR_OK;
 }
 
