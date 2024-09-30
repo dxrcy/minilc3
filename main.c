@@ -14,11 +14,40 @@ static Word registers[8];  // General purpose registers
 static Word pc;            // Program counter
 static uint8_t cc;         // Condition code
 
+// All opcodes. Note that some refer to multiple instruction names
+enum Opcode {
+    OP_BR = 0x0,  // For all BR[nzp] instructions
+    OP_ADD = 0x1,
+    OP_LD = 0x2,
+    OP_ST = 0x3,
+    OP_JSR_JSRR = 0x4,  // Bitflag determines immediate or register
+    OP_AND = 0x5,
+    OP_LDR = 0x6,
+    OP_STR = 0x7,
+    OP_RTI = 0x8,  // Not used in non-supervisor mode
+    OP_NOT = 0x9,
+    OP_LDI = 0xa,
+    OP_STI = 0xb,
+    OP_JMP_RET = 0xc,   // RET == JMP R7
+    OP_RESERVED = 0xd,  // Reserved instruction
+    OP_LEA = 0xe,
+    OP_TRAP = 0xf,
+};
+
+// All trap vectors
+enum TrapVector {
+    TRAP_GETC = 0x20,
+    TRAP_OUT = 0x21,
+    TRAP_PUTS = 0x22,
+    TRAP_IN = 0x23,
+    TRAP_PUTSP = 0x24,
+    TRAP_HALT = 0x25,
+};
+
 enum Error {
     ERR_CLI,          // Parsing command-line arguments
     ERR_FILE,         // Opening/reading file, invalid file structure
     ERR_INSTRUCTION,  // Invalid instruction or padding
-    ERR_UNREACHABLE,  // Should never occur
 };
 
 // Swap high and low bytes of a word
@@ -149,8 +178,8 @@ int main(const int argc, const char *const *const argv) {
     // bits refer to a register or an immediate (ADD, AND, JSR/JSRR).
 
     // Some instructions use the same opcode, or are aliases of other
-    // instructions. Eg. `RET` is `JMP R7`, and `JSR` and `JSRR` use the same
-    // opcode, with a flag.
+    // instructions. Eg. RET is JMP R7, and JSR and JSRR use the same opcode,
+    // with a flag.
 
     // Instructions can have padding of 0's (or 1's for NOT) which can be
     // ignored, but is checked here anyway.
@@ -158,11 +187,11 @@ int main(const int argc, const char *const *const argv) {
     while (true) {
         // Get next instruction, then increment PC
         const Word instruction = memory[pc++];
-        const uint8_t opcode = instruction >> 12;
+        const enum Opcode opcode = (enum Opcode)(instruction >> 12);
 
         switch (opcode) {
             // ADD*
-            case 0x1: {
+            case OP_ADD: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const uint8_t src_reg = (instruction >> 6) & 0x7;
                 SignedWord second_operand;
@@ -184,7 +213,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // AND*
-            case 0x5: {
+            case OP_AND: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const uint8_t src_reg = (instruction >> 6) & 0x7;
                 Word second_operand;
@@ -205,7 +234,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // NOT*
-            case 0x9: {
+            case OP_NOT: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const uint8_t src_reg = (instruction >> 6) & 0x7;
                 if (~(instruction & 0x3f) != 0) {
@@ -218,7 +247,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // LEA*
-            case 0xe: {
+            case OP_LEA: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
@@ -226,7 +255,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // LD*
-            case 0x2: {
+            case OP_LD: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
@@ -236,7 +265,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // LDI*
-            case 0xa: {
+            case OP_LDI: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
@@ -247,7 +276,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // LDR*
-            case 0x6: {
+            case OP_LDR: {
                 const uint8_t dest_reg = (instruction >> 9) & 0x7;
                 const uint8_t base_reg = (instruction >> 6) & 0x7;
                 const SignedWord offset = sign_extend(instruction & 0x3f, 6);
@@ -257,7 +286,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // ST
-            case 0x3: {
+            case OP_ST: {
                 const uint8_t src_reg = (instruction >> 9) & 0x7;
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
@@ -266,7 +295,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // STI
-            case 0xb: {
+            case OP_STI: {
                 const uint8_t src_reg = (instruction >> 9) & 0x7;
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
@@ -276,7 +305,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // STR
-            case 0x7: {
+            case OP_STR: {
                 const uint8_t src_reg = (instruction >> 9) & 0x7;
                 const uint8_t base_reg = (instruction >> 6) & 0x7;
                 const SignedWord offset = sign_extend(instruction & 0x3f, 6);
@@ -285,7 +314,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // BR[nzp]
-            case 0x0: {
+            case OP_BR: {
                 const uint8_t condition = (instruction >> 9) & 0x7;
                 // Cannot have no flags. `BR` is assembled as `BRnzp`
                 if (condition == 0) {
@@ -299,7 +328,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // JMP/RET
-            case 0xc: {
+            case OP_JMP_RET: {
                 if ((instruction & 0xe00) != 0 || (instruction & 0x3f) != 0) {
                     fprintf(stderr, "Invalid padding for JMP/RET\n");
                     return ERR_INSTRUCTION;
@@ -309,7 +338,7 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // JSR/JSRR
-            case 0x4: {
+            case OP_JSR_JSRR: {
                 registers[7] = pc;
                 if (instruction & 0x400) {
                     // JSR
@@ -329,15 +358,16 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // TRAP
-            case 0xf: {
+            case OP_TRAP: {
                 if ((instruction & 0xf00) != 0) {
                     fprintf(stderr, "Invalid padding for TRAP\n");
                     return ERR_INSTRUCTION;
                 }
-                const uint8_t trap_vector = instruction & 0xff;
+                const enum TrapVector trap_vector =
+                    (enum TrapVector)(instruction & 0xff);
                 switch (trap_vector) {
                     // GETC
-                    case 0x20: {
+                    case TRAP_GETC: {
                         enable_raw_terminal();
                         const char input = (char)getchar();
                         disable_raw_terminal();
@@ -345,7 +375,7 @@ int main(const int argc, const char *const *const argv) {
                     }; break;
 
                     // IN
-                    case 0x23: {
+                    case TRAP_IN: {
                         print_on_new_line();
                         printf("Input> ");
                         enable_raw_terminal();
@@ -357,13 +387,13 @@ int main(const int argc, const char *const *const argv) {
                     }; break;
 
                     // OUT
-                    case 0x21: {
+                    case TRAP_OUT: {
                         print_char((char)(registers[0]));
                         (void)fflush(stdout);
                     }; break;
 
                     // PUTS
-                    case 0x22: {
+                    case TRAP_PUTS: {
                         for (Word i = registers[0];; ++i) {
                             const char ch = (char)(memory[i]);
                             if (ch == '\0')
@@ -374,7 +404,7 @@ int main(const int argc, const char *const *const argv) {
                     }; break;
 
                     // PUTSP
-                    case 0x24: {
+                    case TRAP_PUTSP: {
                         for (Word i = registers[0];; ++i) {
                             const Word word = memory[i];
                             const char chars[2] = {
@@ -392,7 +422,7 @@ int main(const int argc, const char *const *const argv) {
                     }; break;
 
                     // HALT
-                    case 0x25:
+                    case TRAP_HALT:
                         goto halt;
 
                     // Could be a non-standard trap, so not unreachable
@@ -407,17 +437,13 @@ int main(const int argc, const char *const *const argv) {
             } break;
 
             // RTI
-            case 0x8:
+            case OP_RTI:
                 fprintf(stderr, "Cannot use RTI in non-supervisor mode\n");
                 return ERR_INSTRUCTION;
             // Reserved
-            case 0xd:
+            case OP_RESERVED:
                 fprintf(stderr, "Cannot use reserved instruction\n");
                 return ERR_INSTRUCTION;
-            // Default branch should never be reached
-            default:
-                fprintf(stderr, "Unreachable code reached\n");
-                return ERR_UNREACHABLE;
         }
     }
 halt:
