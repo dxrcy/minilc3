@@ -1,0 +1,17 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+
+IndentWidth: 4
+
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+
+BinPackArguments: false
+BinPackParameters: false
+
+AlignAfterOpenBracket: BlockIndent
+
+PointerAlignment: Right
+
