@@ -73,35 +73,38 @@ int main(const int argc, const char *const *const argv) {
         return ERR_CLI;
     }
 
-    const char *const filename = argv[1];
-
-    FILE *const file = fopen(filename, "rb");
+    FILE *const file = fopen(argv[1], "rb");
     if (file == NULL) {
-        fprintf(stderr, "Failed to open file\n");
+        fprintf(stderr, "Failed to open file.\n");
         return ERR_FILE;
     }
 
     Word origin;
     fread(&origin, sizeof(Word), 1, file);
+    if (ferror(file)) {
+        fprintf(stderr, "Failed to read file.");
+        return ERR_FILE;
+    }
     origin = swap_endian(origin);
 
-    const size_t max_file_words = (MEMORY_SIZE - origin);
     const size_t words_read =
-        fread(memory + origin, sizeof(Word), max_file_words, file);
-
+        fread(memory + origin, sizeof(Word), MEMORY_SIZE - origin, file);
     if (ferror(file)) {
-        fprintf(stderr, "Failed to read file");
+        fprintf(stderr, "Failed to read file.");
         return ERR_FILE;
     }
     if (!feof(file)) {
-        fprintf(stderr, "File is too large");
+        fprintf(stderr, "File is too long.");
         return ERR_FILE;
     }
     fclose(file);
-
-    for (size_t i = origin; i < origin + words_read; ++i) {
-        memory[i] = swap_endian(memory[i]);
+    if (words_read == 0) {
+        fprintf(stderr, "File is too short.");
+        return ERR_FILE;
     }
+
+    for (size_t i = origin; i < origin + words_read; ++i)
+        memory[i] = swap_endian(memory[i]);
 
     pc = origin;
     cc = 0x2;
@@ -109,10 +112,9 @@ int main(const int argc, const char *const *const argv) {
         registers[i] = 0;
 
     while (true) {
-        const Word instruction = memory[pc];
-        ++pc;
-
+        const Word instruction = memory[pc++];
         const uint8_t opcode = instruction >> 12;
+
         switch (opcode) {
             // ADD*
             case 0x1: {
@@ -237,14 +239,13 @@ int main(const int argc, const char *const *const argv) {
             case 0x0: {
                 const uint8_t condition = (instruction >> 9) & 0x7;
                 if (condition == 0) {
-                    fprintf(stderr, "Invalid condition for BRx\n");
+                    fprintf(stderr, "Invalid condition for BR[nzp]\n");
                     return ERR_INSTRUCTION;
                 }
                 const SignedWord pc_offset =
                     sign_extend(instruction & 0x1ff, 9);
-                if (cc & condition) {
+                if (cc & condition)
                     pc += pc_offset;
-                }
             } break;
 
             // JMP/RET
@@ -302,7 +303,6 @@ int main(const int argc, const char *const *const argv) {
                         const char input = getchar() & 0xff;
                         disable_raw_terminal();
                         print_char(input);
-                        print_on_new_line();
                         registers[0] = input;
                     }; break;
 
@@ -329,15 +329,14 @@ int main(const int argc, const char *const *const argv) {
                         print_on_new_line();
                         for (Word i = registers[0];; ++i) {
                             const Word word = memory[i] & 0xff;
-                            const char ch_high = word >> 8;
-                            const char ch_low = word & 0xff;
+                            const char chars[2] = {word >> 8, word & 0xff};
 
-                            if (ch_high == '\0')
+                            if (chars[0] == '\0')
                                 break;
-                            print_char(ch_high);
-                            if (ch_low == '\0')
+                            print_char(chars[0]);
+                            if (chars[1] == '\0')
                                 break;
-                            print_char(ch_low);
+                            print_char(chars[1]);
                         }
                         fflush(stdout);
                     }; break;
@@ -379,3 +378,4 @@ halt:
     print_on_new_line();
     return 0;
 }
+
