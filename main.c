@@ -10,12 +10,16 @@
 // Total amount of words in memory
 #define MEMORY_SIZE 0x10000L
 
-#define assert(_condition)                                          \
-    {                                                               \
-        if (!(_condition)) {                                        \
-            fprintf(stderr, "Assertion failed: " #_condition "\n"); \
-            exit(ERR_ASSERT);                                       \
-        }                                                           \
+// Sanity check for functions
+// If condition fails then the program is incorrect and should exit
+#define assert(_condition, ...)                                      \
+    {                                                                \
+        if (!(_condition)) {                                         \
+            fprintf(stderr, "Assertion failed:\n" #_condition "\n"); \
+            fprintf(stderr, "" __VA_ARGS__);                         \
+            fprintf(stderr, "\n");                                   \
+            exit(ERR_ASSERT);                                        \
+        }                                                            \
     }
 
 // 1 Word = 2 Bytes
@@ -49,7 +53,7 @@ enum Opcode {
 };
 
 // All trap vectors
-enum TrapVector {
+enum TrapVect {
     TRAP_GETC = 0x20,
     TRAP_OUT = 0x21,
     TRAP_PUTS = 0x22,
@@ -64,7 +68,7 @@ enum Error {
     ERR_CLI,          // Parsing command-line arguments
     ERR_FILE,         // Opening/reading file, invalid file structure
     ERR_INSTRUCTION,  // Invalid instruction or padding
-    ERR_ASSERT,       // Assertion failed; this code has a bug
+    ERR_ASSERT,       // Assertion failed; this codebase has a bug
 };
 
 // Swap high and low bytes of a word
@@ -91,11 +95,10 @@ SignedWord sign_extend(const Word value, const uint8_t bits) {
     Word sign_bit = 1 << (bits - 1);
     return (SignedWord)(value ^ sign_bit) - (SignedWord)sign_bit;
 }
-
 // Get bits highest to lowest (both inclusive)
 // Note that bits ordered low to high, from 0
 Word bits(const Word instruction, const uint8_t highest, const uint8_t lowest) {
-    assert(highest >= lowest);
+    assert(highest >= lowest, "%d >= %d", highest, lowest);
     return (instruction >> lowest) & ((1 << (highest - lowest + 1)) - 1);
 }
 // Get bits and sign extend
@@ -105,6 +108,42 @@ SignedWord bits_sext(
     return sign_extend(
         bits(instruction, highest, lowest), highest - lowest + 1
     );
+}
+
+// Alias functions for common `bits` calls, for readability
+uint8_t bits_reg_a(Word instruction) {
+    return bits(instruction, 11, 9);
+}
+uint8_t bits_reg_b(Word instruction) {
+    return bits(instruction, 8, 6);
+}
+uint8_t bits_reg_c(Word instruction) {
+    return bits(instruction, 2, 0);
+}
+SignedWord bits_imm_5(Word instruction) {
+    return bits_sext(instruction, 4, 0);
+}
+SignedWord bits_offset_6(Word instruction) {
+    return bits_sext(instruction, 5, 0);
+}
+SignedWord bits_pc_offset_9(Word instruction) {
+    return bits_sext(instruction, 8, 0);
+}
+SignedWord bits_pc_offset_11(Word instruction) {
+    return bits_sext(instruction, 10, 0);
+}
+
+// Helper functions to make sure some `IN` prompt is printed on it's own line
+static bool stdout_on_new_line = true;
+void print_char(const char ch) {
+    printf("%c", ch);
+    stdout_on_new_line = ch == '\n';
+}
+void print_on_new_line() {
+    if (stdout_on_new_line)
+        return;
+    printf("\n");
+    stdout_on_new_line = true;
 }
 
 // Don't worry about this. It's to disable line buffering for stdin.
@@ -121,19 +160,6 @@ void disable_raw_terminal() {
     tty.c_lflag |= ICANON;
     tty.c_lflag |= ECHO;
     (void)tcsetattr(STDIN_FILENO, TCSANOW, &tty);
-}
-
-// Helper functions to make sure some `IN` prompt is printed on it's own line
-static bool stdout_on_new_line = true;
-void print_char(const char ch) {
-    printf("%c", ch);
-    stdout_on_new_line = ch == '\n';
-}
-void print_on_new_line() {
-    if (stdout_on_new_line)
-        return;
-    printf("\n");
-    stdout_on_new_line = true;
 }
 
 int main(const int argc, const char *const *const argv) {
@@ -224,8 +250,8 @@ int main(const int argc, const char *const *const argv) {
         switch (opcode) {
             // ADD*
             case OP_ADD: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const uint8_t src_reg = bits(instruction, 8, 6);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const uint8_t src_reg = bits_reg_b(instruction);
                 SignedWord second_operand;
                 if (bits(instruction, 5, 5) == 0) {
                     // Second operand is a register
@@ -234,10 +260,10 @@ int main(const int argc, const char *const *const argv) {
                         return ERR_INSTRUCTION;
                     }
                     second_operand =
-                        (SignedWord)registers[bits(instruction, 2, 0)];
+                        (SignedWord)registers[bits_reg_c(instruction)];
                 } else {
                     // Second operand is an immediate
-                    second_operand = bits_sext(instruction, 4, 0);
+                    second_operand = bits_imm_5(instruction);
                 }
                 const SignedWord result =
                     (SignedWord)registers[src_reg] + second_operand;
@@ -247,8 +273,8 @@ int main(const int argc, const char *const *const argv) {
 
             // AND*
             case OP_AND: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const uint8_t src_reg = bits(instruction, 8, 6);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const uint8_t src_reg = bits_reg_b(instruction);
                 Word second_operand;
                 if (bits(instruction, 5, 5) == 0) {
                     // Second operand is a register
@@ -256,10 +282,10 @@ int main(const int argc, const char *const *const argv) {
                         fprintf(stderr, "Invalid padding for ADD\n");
                         return ERR_INSTRUCTION;
                     }
-                    second_operand = registers[bits(instruction, 2, 0)];
+                    second_operand = registers[bits_reg_c(instruction)];
                 } else {
                     // Second operand is an immediate
-                    second_operand = bits(instruction, 4, 0);
+                    second_operand = (Word)bits_imm_5(instruction);
                 }
                 const Word result = registers[src_reg] & second_operand;
                 registers[dest_reg] = result;
@@ -268,8 +294,8 @@ int main(const int argc, const char *const *const argv) {
 
             // NOT*
             case OP_NOT: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const uint8_t src_reg = bits(instruction, 8, 6);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const uint8_t src_reg = bits_reg_b(instruction);
                 if (bits(instruction, 5, 0) != 0x3f) {
                     fprintf(stderr, "Invalid padding for NOT\n");
                     return ERR_INSTRUCTION;
@@ -281,15 +307,15 @@ int main(const int argc, const char *const *const argv) {
 
             // LEA*
             case OP_LEA: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const SignedWord pc_offset = bits_sext(instruction, 8, 0);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 registers[dest_reg] = pc + pc_offset;
             } break;
 
             // LD*
             case OP_LD: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const SignedWord pc_offset = bits_sext(instruction, 8, 0);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 const Word result = memory[pc + pc_offset];
                 registers[dest_reg] = result;
                 set_cc((SignedWord)result);
@@ -297,8 +323,8 @@ int main(const int argc, const char *const *const argv) {
 
             // LDI*
             case OP_LDI: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const SignedWord pc_offset = bits_sext(instruction, 8, 0);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 const Word address = memory[pc + pc_offset];
                 const Word result = memory[address];
                 registers[dest_reg] = result;
@@ -307,9 +333,9 @@ int main(const int argc, const char *const *const argv) {
 
             // LDR*
             case OP_LDR: {
-                const uint8_t dest_reg = bits(instruction, 11, 9);
-                const uint8_t base_reg = bits(instruction, 8, 6);
-                const SignedWord offset = bits_sext(instruction, 5, 0);
+                const uint8_t dest_reg = bits_reg_a(instruction);
+                const uint8_t base_reg = bits_reg_b(instruction);
+                const SignedWord offset = bits_offset_6(instruction);
                 const Word result = memory[registers[base_reg] + offset];
                 registers[dest_reg] = result;
                 set_cc((SignedWord)result);
@@ -317,16 +343,16 @@ int main(const int argc, const char *const *const argv) {
 
             // ST
             case OP_ST: {
-                const uint8_t src_reg = bits(instruction, 11, 9);
-                const SignedWord pc_offset = bits(instruction, 8, 0);
+                const uint8_t src_reg = bits_reg_a(instruction);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 const Word result = registers[src_reg];
                 memory[pc + pc_offset] = result;
             } break;
 
             // STI
             case OP_STI: {
-                const uint8_t src_reg = bits(instruction, 11, 9);
-                const SignedWord pc_offset = bits_sext(instruction, 8, 0);
+                const uint8_t src_reg = bits_reg_a(instruction);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 const Word address = memory[pc + pc_offset];
                 const Word result = registers[src_reg];
                 memory[address] = result;
@@ -334,9 +360,9 @@ int main(const int argc, const char *const *const argv) {
 
             // STR
             case OP_STR: {
-                const uint8_t src_reg = bits(instruction, 11, 9);
-                const uint8_t base_reg = bits(instruction, 8, 6);
-                const SignedWord offset = bits_sext(instruction, 5, 0);
+                const uint8_t src_reg = bits_reg_a(instruction);
+                const uint8_t base_reg = bits_reg_b(instruction);
+                const SignedWord offset = bits_offset_6(instruction);
                 const Word result = registers[src_reg];
                 memory[registers[base_reg] + offset] = result;
             } break;
@@ -346,13 +372,13 @@ int main(const int argc, const char *const *const argv) {
                 // Skip NOP case
                 if (instruction == 0x0000)
                     continue;
-                const uint8_t condition = bits(instruction, 11, 9);
+                const uint8_t condition = bits_reg_a(instruction);
                 // Cannot have no flags. `BR` is assembled as `BRnzp`
                 if (condition == 0) {
                     fprintf(stderr, "Invalid condition for BR[nzp]\n");
                     return ERR_INSTRUCTION;
                 }
-                const SignedWord pc_offset = bits_sext(instruction, 8, 0);
+                const SignedWord pc_offset = bits_pc_offset_9(instruction);
                 if (cc & condition)
                     pc += pc_offset;
             } break;
@@ -364,7 +390,7 @@ int main(const int argc, const char *const *const argv) {
                     fprintf(stderr, "Invalid padding for JMP/RET\n");
                     return ERR_INSTRUCTION;
                 }
-                const uint8_t base_reg = bits(instruction, 8, 6);
+                const uint8_t base_reg = bits_reg_b(instruction);
                 pc = registers[base_reg];
             } break;
 
@@ -373,7 +399,7 @@ int main(const int argc, const char *const *const argv) {
                 registers[7] = pc;
                 if (bits(instruction, 11, 11)) {
                     // JSR
-                    const SignedWord pc_offset = bits_sext(instruction, 10, 0);
+                    const SignedWord pc_offset = bits_pc_offset_11(instruction);
                     pc += pc_offset;
                 } else {
                     // JSRR
@@ -382,7 +408,7 @@ int main(const int argc, const char *const *const argv) {
                         fprintf(stderr, "Invalid padding for JSRR\n");
                         return ERR_INSTRUCTION;
                     }
-                    const uint8_t base_reg = bits(instruction, 8, 6);
+                    const uint8_t base_reg = bits_reg_b(instruction);
                     pc = registers[base_reg];
                 }
             } break;
@@ -393,9 +419,9 @@ int main(const int argc, const char *const *const argv) {
                     fprintf(stderr, "Invalid padding for TRAP\n");
                     return ERR_INSTRUCTION;
                 }
-                const enum TrapVector trap_vector =
-                    (enum TrapVector)bits(instruction, 7, 0);
-                switch (trap_vector) {
+                const enum TrapVect trap_vect =
+                    (enum TrapVect)bits(instruction, 8, 0);
+                switch (trap_vect) {
                     // GETC
                     case TRAP_GETC: {
                         enable_raw_terminal();
@@ -458,9 +484,7 @@ int main(const int argc, const char *const *const argv) {
                     // Could be a non-standard trap, so not unreachable
                     default:
                         fprintf(
-                            stderr,
-                            "Invalid TRAP vector 0x%02hhx\n",
-                            trap_vector
+                            stderr, "Invalid TRAP vector 0x%02hhx\n", trap_vect
                         );
                         return ERR_INSTRUCTION;
                 }
