@@ -1,6 +1,8 @@
 # MiniLC3
 
-A basic implementation of an LC-3 simulator in under 400 lines of code.
+A minimal implementation of an
+[LC-3](https://en.wikipedia.org/wiki/Little_Computer_3) simulator in only a few
+hundred lines of code.
 
 # Installation
 
@@ -8,6 +10,6 @@ A basic implementation of an LC-3 simulator in under 400 lines of code.
 make
 sudo make install
 
-minilc3 [FILE]
+minilc3 FILE.obj
 ```
 
